@@ -647,8 +647,10 @@
 </div>
 
 <script>
-// ─── CONFIG (injected by start.sh or loaded from config.json) ───
-const BACKEND_PORT = window.__BACKEND_PORT__ || 5001;
+// ─── CONFIG ───────────────────────────────────────────────────────
+// Port sa načíta z config.json cez backend, fallback 5001
+// Ak dashboard nefunguje, uprav tento riadok manuálne:
+const BACKEND_PORT = 5001; // ← zmeň na tvoj port ak treba
 const API = `http://${location.hostname}:${BACKEND_PORT}`;
 
 // ─── STATE ───────────────────────────────────────────────────────
