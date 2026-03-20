@@ -277,20 +277,70 @@ def traceroute():
 
 @app.route("/api/speedtest", methods=["POST"])
 def speedtest():
+    """
+    Meranie rýchlosti cez stiahnutie testovacieho súboru z Cloudflare CDN.
+    Nevyžaduje speedtest-cli, funguje spoľahlivo bez 403.
+    """
+    import urllib.request, time, threading
+
+    results = {"ok": False, "ping_ms": 0, "down_mbps": 0, "up_mbps": 0}
+
+    # ── Ping ──────────────────────────────────────
     try:
-        import speedtest as st
-        s = st.Speedtest()
-        s.get_best_server()
-        return jsonify({
-            "ok":       True,
-            "ping_ms":  round(s.results.ping, 1),
-            "down_mbps": round(s.download() / 1e6, 2),
-            "up_mbps":  round(s.upload()   / 1e6, 2),
+        t0 = time.time()
+        urllib.request.urlopen("https://1.1.1.1", timeout=3)
+        results["ping_ms"] = round((time.time() - t0) * 1000, 1)
+    except Exception:
+        try:
+            out = run_cmd(["ping", "-c", "3", "-W", "1", "1.1.1.1"])
+            m = re.search(r"avg.*?([\d.]+)", out)
+            results["ping_ms"] = float(m.group(1)) if m else 0
+        except Exception:
+            results["ping_ms"] = 0
+
+    # ── Download — Cloudflare 100MB test súbor ────
+    try:
+        url = "https://speed.cloudflare.com/__down?bytes=10000000"  # 10 MB
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; RPi5Dashboard/1.0)"
         })
-    except ImportError:
-        return jsonify({"ok": False, "error": "Spusti: pip install speedtest-cli"})
+        t0    = time.time()
+        total = 0
+        with urllib.request.urlopen(req, timeout=20) as r:
+            while True:
+                chunk = r.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+        elapsed = time.time() - t0
+        results["down_mbps"] = round((total * 8) / elapsed / 1e6, 2)
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        results["down_mbps"] = 0
+
+    # ── Upload — POST na Cloudflare speed endpoint ─
+    try:
+        data = b"x" * 2_000_000  # 2 MB
+        req  = urllib.request.Request(
+            "https://speed.cloudflare.com/__up",
+            data=data,
+            headers={
+                "Content-Type":   "application/octet-stream",
+                "User-Agent":     "Mozilla/5.0 (compatible; RPi5Dashboard/1.0)",
+                "Content-Length": str(len(data)),
+            },
+            method="POST"
+        )
+        t0 = time.time()
+        urllib.request.urlopen(req, timeout=20)
+        elapsed = time.time() - t0
+        results["up_mbps"] = round((len(data) * 8) / elapsed / 1e6, 2)
+    except Exception:
+        results["up_mbps"] = 0
+
+    results["ok"] = results["down_mbps"] > 0
+    if not results["ok"]:
+        results["error"] = "Nepodarilo sa zmerať rýchlosť. Skontroluj internetové pripojenie."
+    return jsonify(results)
 
 @app.route("/api/firewall/status")
 def firewall_status():
@@ -303,6 +353,213 @@ def firewall_toggle():
     enable = (request.get_json() or {}).get("enable", True)
     out    = run_cmd(["sudo","ufw","--force","enable" if enable else "disable"])
     return jsonify({"ok": True, "output": out})
+
+# ── Logy ───────────────────────────────────────
+
+@app.route("/api/logs/<source>")
+def get_logs(source):
+    """Živé logy. source: system | nginx | auth | syslog"""
+    sources = {
+        "system": ["journalctl", "-n", "80", "--no-pager", "-o", "short"],
+        "nginx":  ["journalctl", "-u", "nginx", "-n", "60", "--no-pager"],
+        "auth":   ["journalctl", "-u", "ssh",   "-n", "60", "--no-pager"],
+        "syslog": ["tail", "-n", "80", "/var/log/syslog"],
+    }
+    if source not in sources:
+        return jsonify({"ok": False, "error": "Neznámy zdroj"}), 400
+    out = run_cmd(sources[source], timeout=8)
+    lines = out.split("\n")
+    return jsonify({"ok": True, "source": source, "lines": lines})
+
+# ── Docker ─────────────────────────────────────
+
+@app.route("/api/docker/containers")
+def docker_containers():
+    out = run_cmd(["docker", "ps", "-a",
+                   "--format", "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}"],
+                  timeout=8)
+    if "ERROR" in out or "command not found" in out:
+        return jsonify({"ok": False, "error": "Docker nie je nainštalovaný alebo nebeží", "containers": []})
+    containers = []
+    for line in out.strip().split("\n"):
+        if not line:
+            continue
+        parts = line.split("|")
+        if len(parts) >= 4:
+            containers.append({
+                "id":     parts[0][:12],
+                "name":   parts[1],
+                "status": parts[2],
+                "image":  parts[3],
+                "ports":  parts[4] if len(parts) > 4 else "",
+                "running": "Up" in parts[2],
+            })
+    return jsonify({"ok": True, "containers": containers})
+
+@app.route("/api/docker/<action>/<container_id>", methods=["POST"])
+def docker_action(action, container_id):
+    if action not in ("start", "stop", "restart", "remove"):
+        return jsonify({"ok": False, "error": "Neplatná akcia"}), 400
+    cmd = ["docker", action, container_id]
+    out = run_cmd(cmd, timeout=15)
+    return jsonify({"ok": "ERROR" not in out, "output": out})
+
+# ── vcgencmd rozšírenie (RPi-špecifické) ────────
+
+@app.route("/api/rpi/hardware")
+def rpi_hardware():
+    """Podrobné RPi5 hardvérové info cez vcgencmd."""
+    def vcg(args):
+        return run_cmd(["vcgencmd"] + args)
+
+    throttled_raw = vcg(["get_throttled"])
+    throttled_val = 0
+    m = re.search(r"0x([0-9a-fA-F]+)", throttled_raw)
+    if m:
+        throttled_val = int(m.group(1), 16)
+
+    throttle_flags = {
+        "undervoltage_now":       bool(throttled_val & 0x1),
+        "freq_capped_now":        bool(throttled_val & 0x2),
+        "throttled_now":          bool(throttled_val & 0x4),
+        "soft_temp_limit_now":    bool(throttled_val & 0x8),
+        "undervoltage_occurred":  bool(throttled_val & 0x10000),
+        "freq_capped_occurred":   bool(throttled_val & 0x20000),
+        "throttled_occurred":     bool(throttled_val & 0x40000),
+    }
+
+    def parse_volt(s):
+        m = re.search(r"([\d.]+)V", s)
+        return float(m.group(1)) if m else 0.0
+
+    def parse_clock(s):
+        m = re.search(r"=(\d+)", s)
+        return int(int(m.group(1)) / 1_000_000) if m else 0
+
+    return jsonify({
+        "temp_cpu":       cpu_temp(),
+        "temp_pmic":      float(re.search(r"temp=([\d.]+)", vcg(["measure_temp", "pmic"])).group(1)) if re.search(r"temp=([\d.]+)", vcg(["measure_temp", "pmic"])) else 0,
+        "volt_core":      parse_volt(vcg(["measure_volts", "core"])),
+        "volt_sdram":     parse_volt(vcg(["measure_volts", "sdram_c"])),
+        "clock_arm_mhz":  parse_clock(vcg(["measure_clock", "arm"])),
+        "clock_core_mhz": parse_clock(vcg(["measure_clock", "core"])),
+        "clock_v3d_mhz":  parse_clock(vcg(["measure_clock", "v3d"])),
+        "throttle_flags": throttle_flags,
+        "throttled_hex":  throttled_raw,
+    })
+
+# ── Uptime monitoring ───────────────────────────
+
+_uptime_targets = []
+_uptime_results = {}
+
+@app.route("/api/uptime/targets", methods=["GET"])
+def uptime_targets():
+    return jsonify({"targets": _uptime_targets, "results": _uptime_results})
+
+@app.route("/api/uptime/targets", methods=["POST"])
+def add_uptime_target():
+    d    = request.get_json() or {}
+    name = d.get("name", "")
+    url  = d.get("url", "")
+    if not name or not url:
+        return jsonify({"ok": False, "error": "Chýba name alebo url"}), 400
+    if not any(t["url"] == url for t in _uptime_targets):
+        _uptime_targets.append({"name": name, "url": url})
+    return jsonify({"ok": True})
+
+@app.route("/api/uptime/targets/<int:idx>", methods=["DELETE"])
+def delete_uptime_target(idx):
+    if 0 <= idx < len(_uptime_targets):
+        removed = _uptime_targets.pop(idx)
+        _uptime_results.pop(removed["url"], None)
+    return jsonify({"ok": True})
+
+@app.route("/api/uptime/check")
+def uptime_check():
+    """Skontroluje všetky monitorované URL."""
+    import urllib.request as ur
+    results = {}
+    for t in _uptime_targets:
+        url = t["url"]
+        try:
+            req = ur.Request(url, headers={"User-Agent": "RPi5Dashboard/1.0"})
+            t0  = time.time()
+            with ur.urlopen(req, timeout=5) as r:
+                code    = r.status
+                latency = round((time.time() - t0) * 1000, 1)
+                results[url] = {"up": True,  "code": code, "latency_ms": latency}
+        except Exception as e:
+            results[url] = {"up": False, "code": 0,    "latency_ms": 0, "error": str(e)}
+    _uptime_results.update(results)
+    return jsonify({"ok": True, "results": results})
+
+# ── Záložky (Service Launcher) ──────────────────
+
+_bookmarks = []
+
+@app.route("/api/bookmarks", methods=["GET"])
+def get_bookmarks():
+    return jsonify({"bookmarks": _bookmarks})
+
+@app.route("/api/bookmarks", methods=["POST"])
+def add_bookmark():
+    d = request.get_json() or {}
+    _bookmarks.append({
+        "name": d.get("name", "Nová záložka"),
+        "url":  d.get("url", ""),
+        "icon": d.get("icon", "◈"),
+        "color": d.get("color", "green"),
+    })
+    return jsonify({"ok": True, "bookmarks": _bookmarks})
+
+@app.route("/api/bookmarks/<int:idx>", methods=["DELETE"])
+def delete_bookmark(idx):
+    if 0 <= idx < len(_bookmarks):
+        _bookmarks.pop(idx)
+    return jsonify({"ok": True})
+
+# ── Výstrahy (Alerts) ───────────────────────────
+
+_alert_config = {
+    "cpu_temp_warn":  70.0,
+    "cpu_temp_crit":  80.0,
+    "cpu_load_warn":  80.0,
+    "ram_warn":       85.0,
+    "disk_warn":      90.0,
+}
+
+@app.route("/api/alerts/config", methods=["GET"])
+def get_alert_config():
+    return jsonify(_alert_config)
+
+@app.route("/api/alerts/config", methods=["POST"])
+def set_alert_config():
+    d = request.get_json() or {}
+    _alert_config.update({k: float(v) for k, v in d.items() if k in _alert_config})
+    return jsonify({"ok": True, "config": _alert_config})
+
+@app.route("/api/alerts/check")
+def check_alerts():
+    """Skontroluje aktuálny stav voči prahom."""
+    alerts = []
+    mem  = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
+    temp = cpu_temp()
+    load = psutil.cpu_percent(interval=0.1)
+
+    if temp >= _alert_config["cpu_temp_crit"]:
+        alerts.append({"level": "critical", "msg": f"CPU teplota kritická: {temp}°C"})
+    elif temp >= _alert_config["cpu_temp_warn"]:
+        alerts.append({"level": "warning",  "msg": f"CPU teplota vysoká: {temp}°C"})
+    if load >= _alert_config["cpu_load_warn"]:
+        alerts.append({"level": "warning",  "msg": f"CPU záťaž vysoká: {load:.0f}%"})
+    if mem.percent >= _alert_config["ram_warn"]:
+        alerts.append({"level": "warning",  "msg": f"RAM takmer plná: {mem.percent:.0f}%"})
+    if disk.percent >= _alert_config["disk_warn"]:
+        alerts.append({"level": "critical", "msg": f"Disk takmer plný: {disk.percent:.0f}%"})
+
+    return jsonify({"ok": True, "alerts": alerts, "count": len(alerts)})
 
 @app.route("/api/system/reboot", methods=["POST"])
 def reboot():

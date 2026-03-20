@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RPi5 Dashboard</title>
+<title>PiControl Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -194,8 +194,16 @@
 
 <header>
   <div class="logo">
-    <div class="logo-icon">π</div>
-    <span id="hostname-lbl">rpi5.local</span>
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" style="flex-shrink:0;">
+      <rect width="28" height="28" rx="6" fill="rgba(0,230,118,0.12)" stroke="#00e676" stroke-width="1.2"/>
+      <circle cx="14" cy="14" r="5" stroke="#00e676" stroke-width="1.4" fill="none"/>
+      <line x1="14" y1="4"  x2="14" y2="8"  stroke="#00e676" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="14" y1="20" x2="14" y2="24" stroke="#00e676" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="4"  y1="14" x2="8"  y2="14" stroke="#00e676" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="20" y1="14" x2="24" y2="14" stroke="#00e676" stroke-width="1.4" stroke-linecap="round"/>
+      <circle cx="14" cy="14" r="2" fill="#00e676"/>
+    </svg>
+    <span style="font-weight:600;letter-spacing:.06em;">PiControl</span>
     <div class="live-badge"><div class="live-dot"></div>LIVE</div>
   </div>
   <div class="status-bar">
@@ -206,12 +214,16 @@
 </header>
 
 <nav>
-  <button class="nav-btn active" onclick="showSection('overview')" data-sec="overview">◈ Prehľad</button>
-  <button class="nav-btn" onclick="showSection('network')"  data-sec="network">◎ Sieť</button>
+  <button class="nav-btn active" onclick="showSection('overview')"  data-sec="overview">◈ Prehľad</button>
+  <button class="nav-btn" onclick="showSection('network')"   data-sec="network">◎ Sieť</button>
   <button class="nav-btn" onclick="showSection('speedtest')" data-sec="speedtest">▶ Speed Test</button>
-  <button class="nav-btn" onclick="showSection('vpn')"      data-sec="vpn">⬡ VPN</button>
-  <button class="nav-btn" onclick="showSection('ai')"       data-sec="ai">◆ AI Chat</button>
-  <button class="nav-btn" onclick="showSection('system')"   data-sec="system">⊞ Systém</button>
+  <button class="nav-btn" onclick="showSection('vpn')"       data-sec="vpn">⬡ VPN</button>
+  <button class="nav-btn" onclick="showSection('docker')"    data-sec="docker">⊡ Docker</button>
+  <button class="nav-btn" onclick="showSection('logs')"      data-sec="logs">≡ Logy</button>
+  <button class="nav-btn" onclick="showSection('uptime')"    data-sec="uptime">◉ Uptime</button>
+  <button class="nav-btn" onclick="showSection('launcher')"  data-sec="launcher">⊞ Launcher</button>
+  <button class="nav-btn" onclick="showSection('ai')"        data-sec="ai">◆ AI Chat</button>
+  <button class="nav-btn" onclick="showSection('system')"    data-sec="system">⊟ Systém</button>
 </nav>
 
 <main>
@@ -219,7 +231,10 @@
   ⚠ Nedá sa pripojiť na backend. Skontroluj či beží: <span id="api-url-err"></span>
 </div>
 
-<!-- ===== OVERVIEW ===== -->
+<!-- ALERTS BANNER -->
+<div id="alerts-banner" style="display:none;background:rgba(255,82,82,0.1);border:1px solid rgba(255,82,82,0.3);border-radius:var(--radius);padding:10px 16px;margin-bottom:14px;font-family:var(--mono);font-size:12px;color:var(--red);" id="alerts-banner"></div>
+
+
 <div class="section active" id="sec-overview">
   <div class="grid-4">
     <div class="stat-card green">
@@ -500,6 +515,131 @@
       <button class="btn btn-amber" onclick="confirmAction('reboot')">↺ Reštart</button>
       <button class="btn btn-red"   onclick="confirmAction('shutdown')">⬛ Vypnúť</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== DOCKER ===== -->
+<div class="section" id="sec-docker">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Docker Kontajnery</div>
+      <button class="btn btn-green" onclick="loadDocker()" style="padding:4px 10px;font-size:11px;">↻ Refresh</button>
+    </div>
+    <div class="overflow-x">
+      <table class="data-table">
+        <thead><tr><th>ID</th><th>Meno</th><th>Image</th><th>Stav</th><th>Porty</th><th>Akcia</th></tr></thead>
+        <tbody id="docker-body"><tr><td colspan="6" style="text-align:center;color:var(--text3);">Načítavam...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="terminal">
+    <div class="terminal-header"><div class="term-dot r"></div><div class="term-dot y"></div><div class="term-dot g"></div>
+      <span style="font-size:11px;color:var(--text2);margin-left:8px;">docker — bash</span></div>
+    <div class="terminal-body" id="docker-terminal">
+      <div class="term-line"><span class="term-out">Čaká na príkaz...</span></div>
+      <div class="term-line"><span class="term-prompt">pi@rpi5:~$ </span><span class="term-cursor"></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== LOGS ===== -->
+<div class="section" id="sec-logs">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Systémové Logy</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select class="form-input" id="log-source" style="width:140px;padding:4px 8px;" onchange="loadLogs()">
+          <option value="system">Systém (journald)</option>
+          <option value="nginx">Nginx</option>
+          <option value="auth">SSH / Auth</option>
+          <option value="syslog">Syslog</option>
+        </select>
+        <button class="btn btn-green" onclick="loadLogs()" style="padding:4px 10px;font-size:11px;">↻ Refresh</button>
+        <label class="toggle" title="Auto-refresh"><input type="checkbox" id="log-auto" onchange="toggleLogAuto()"><span class="toggle-slider"></span></label>
+        <span class="toggle-label">Auto</span>
+      </div>
+    </div>
+    <div class="terminal" style="margin-bottom:0;">
+      <div class="terminal-header"><div class="term-dot r"></div><div class="term-dot y"></div><div class="term-dot g"></div>
+        <span style="font-size:11px;color:var(--text2);margin-left:8px;" id="log-source-label">journalctl</span>
+        <input type="text" id="log-filter" class="form-input" placeholder="Filter..." style="margin-left:auto;width:180px;padding:3px 8px;font-size:11px;" oninput="filterLogs()">
+      </div>
+      <div class="terminal-body" id="log-body" style="max-height:420px;font-size:11px;line-height:1.6;">
+        <div class="term-line"><span class="term-out">Vyber zdroj a klikni Refresh...</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== UPTIME ===== -->
+<div class="section" id="sec-uptime">
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Pridať Monitorovanú Službu</div>
+      </div>
+      <div class="form-row"><div class="form-label">Názov</div><input class="form-input" id="uptime-name" placeholder="Môj web"></div>
+      <div class="form-row"><div class="form-label">URL</div><input class="form-input" id="uptime-url" placeholder="https://example.com"></div>
+      <div class="btn-row">
+        <button class="btn btn-green" onclick="addUptimeTarget()">+ Pridať</button>
+        <button class="btn btn-blue" onclick="checkUptime()">↻ Skontrolovať všetky</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Rýchle pridanie</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <button class="btn btn-blue" style="font-size:11px;justify-content:flex-start;" onclick="quickUptime('Google','https://google.com')">+ Google</button>
+        <button class="btn btn-blue" style="font-size:11px;justify-content:flex-start;" onclick="quickUptime('Cloudflare','https://1.1.1.1')">+ Cloudflare DNS</button>
+        <button class="btn btn-blue" style="font-size:11px;justify-content:flex-start;" onclick="quickUptime('GitHub','https://github.com')">+ GitHub</button>
+        <button class="btn btn-blue" style="font-size:11px;justify-content:flex-start;" onclick="quickUptime('Lokálny backend',`http://${location.hostname}:${BACKEND_PORT}/health`)">+ Lokálny backend</button>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Monitorované Služby</div>
+      <div class="live-badge"><div class="live-dot"></div>30s</div>
+    </div>
+    <div id="uptime-list" style="display:flex;flex-direction:column;gap:8px;">
+      <div style="color:var(--text3);font-family:var(--mono);font-size:12px;text-align:center;padding:20px;">Zatiaľ žiadne služby. Pridaj ich vyššie.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== LAUNCHER ===== -->
+<div class="section" id="sec-launcher">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Pridať Záložku</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 80px 100px;gap:10px;align-items:end;">
+      <div>
+        <div class="form-label" style="margin-bottom:4px;">Názov</div>
+        <input class="form-input" id="bm-name" placeholder="Môja služba">
+      </div>
+      <div>
+        <div class="form-label" style="margin-bottom:4px;">URL</div>
+        <input class="form-input" id="bm-url" placeholder="http://10.0.0.1:8080">
+      </div>
+      <div>
+        <div class="form-label" style="margin-bottom:4px;">Ikona</div>
+        <input class="form-input" id="bm-icon" placeholder="◈" style="text-align:center;">
+      </div>
+      <div>
+        <div class="form-label" style="margin-bottom:4px;">Farba</div>
+        <select class="form-input" id="bm-color">
+          <option value="green">Zelená</option>
+          <option value="blue">Modrá</option>
+          <option value="amber">Žltá</option>
+          <option value="purple">Fialová</option>
+          <option value="red">Červená</option>
+        </select>
+      </div>
+    </div>
+    <div class="btn-row"><button class="btn btn-green" onclick="addBookmark()">+ Pridať záložku</button></div>
+  </div>
+  <div id="launcher-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;">
+    <div style="color:var(--text3);font-family:var(--mono);font-size:12px;text-align:center;padding:30px;grid-column:1/-1;">Pridaj záložky pre rýchly prístup k tvojim službám.</div>
   </div>
 </div>
 
@@ -838,8 +978,277 @@ async function doKillSwitch() {
   } catch (e) {}
 }
 
-// ─── SPEED TEST ───────────────────────────────────────────────────
+// ─── SPEED TEST (opravený - Cloudflare CDN) ──────────────────────
 async function runSpeedTest() {
+  const btn = document.getElementById('speed-btn');
+  btn.disabled = true; btn.textContent = '⏳ Testuje...';
+  document.getElementById('speed-state').textContent = 'Prebieha...';
+  document.getElementById('speed-state').className   = 'tag tag-amber';
+  document.getElementById('speed-num').textContent   = '0';
+
+  const arc = document.getElementById('speed-arc');
+  let fake = 0;
+  const anim = setInterval(() => {
+    fake = Math.min(fake + 1.5, 95);
+    document.getElementById('speed-num').textContent = fake.toFixed(0);
+    arc.setAttribute('stroke-dashoffset', (364*(1-fake/200)).toFixed(1));
+  }, 100);
+
+  try {
+    const r = await apiFetch('/api/speedtest', { method: 'POST' });
+    clearInterval(anim);
+    if (r.ok) {
+      document.getElementById('ping-result').textContent = r.ping_ms + ' ms';
+      document.getElementById('down-result').textContent = r.down_mbps + ' Mbps';
+      document.getElementById('up-result').textContent   = r.up_mbps  + ' Mbps';
+      document.getElementById('speed-num').textContent   = r.down_mbps;
+      arc.setAttribute('stroke-dashoffset', (364*(1-Math.min(r.down_mbps/200,1))).toFixed(1));
+      document.getElementById('speed-unit-lbl').textContent = 'Mbps';
+      document.getElementById('speed-state').textContent = 'Hotovo ✓';
+      document.getElementById('speed-state').className   = 'tag tag-green';
+      const tbody = document.getElementById('speed-hist');
+      if (tbody.querySelector('td[colspan]')) tbody.innerHTML = '';
+      const now = new Date().toLocaleTimeString('sk-SK',{hour:'2-digit',minute:'2-digit'});
+      tbody.innerHTML = `<tr>
+        <td>${now}</td><td style="color:var(--amber)">${r.ping_ms} ms</td>
+        <td style="color:var(--green)">${r.down_mbps}</td>
+        <td style="color:var(--blue)">${r.up_mbps}</td>
+      </tr>` + tbody.innerHTML;
+    } else {
+      document.getElementById('speed-state').textContent = 'Chyba';
+      document.getElementById('speed-state').className   = 'tag tag-red';
+      document.getElementById('speed-num').textContent   = '!';
+      alert('Speed test chyba: ' + (r.error || 'Neznáma chyba'));
+    }
+  } catch(e) {
+    clearInterval(anim);
+    document.getElementById('speed-state').textContent = 'Chyba backendu';
+    document.getElementById('speed-state').className   = 'tag tag-red';
+  }
+  btn.disabled = false; btn.textContent = '▶ Znova';
+}
+
+// ─── DOCKER ──────────────────────────────────────────────────────
+async function loadDocker() {
+  try {
+    const r = await apiFetch('/api/docker/containers');
+    const tbody = document.getElementById('docker-body');
+    if (!r.ok || r.containers.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text3);">${r.error || 'Žiadne kontajnery'}</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = '';
+    r.containers.forEach(c => {
+      const tag = c.running
+        ? '<span class="tag tag-green">running</span>'
+        : '<span class="tag tag-red">stopped</span>';
+      const btns = c.running
+        ? `<button class="btn btn-amber" style="padding:2px 7px;font-size:10px;" onclick="dockerAction('restart','${c.id}')">↺</button>
+           <button class="btn btn-red"   style="padding:2px 7px;font-size:10px;" onclick="dockerAction('stop','${c.id}')">■</button>`
+        : `<button class="btn btn-green" style="padding:2px 7px;font-size:10px;" onclick="dockerAction('start','${c.id}')">▶</button>
+           <button class="btn btn-red"   style="padding:2px 7px;font-size:10px;" onclick="dockerAction('remove','${c.id}')">✕</button>`;
+      tbody.innerHTML += `<tr>
+        <td style="color:var(--text3)">${c.id}</td>
+        <td class="hl">${c.name}</td>
+        <td style="color:var(--blue)">${c.image}</td>
+        <td>${tag}</td>
+        <td style="font-size:10px;color:var(--text3)">${c.ports || '—'}</td>
+        <td style="display:flex;gap:4px;">${btns}</td>
+      </tr>`;
+    });
+  } catch(e) {}
+}
+
+async function dockerAction(action, id) {
+  try {
+    const r = await apiFetch(`/api/docker/${action}/${id}`, { method: 'POST' });
+    appendTerm('docker-terminal', `docker ${action} ${id}`, r.output || '', r.ok ? 'ok' : 'err');
+    await loadDocker();
+  } catch(e) {}
+}
+
+// ─── LOGS ─────────────────────────────────────────────────────────
+let logAutoTimer = null;
+let allLogLines  = [];
+
+async function loadLogs() {
+  const src   = document.getElementById('log-source').value;
+  const label = document.getElementById('log-source-label');
+  const body  = document.getElementById('log-body');
+  label.textContent = src;
+  body.innerHTML = '<div class="term-line"><span class="term-out">Načítavam...</span></div>';
+  try {
+    const r = await apiFetch(`/api/logs/${src}`);
+    allLogLines = r.lines || [];
+    renderLogs(allLogLines);
+  } catch(e) {
+    body.innerHTML = '<div class="term-line"><span class="term-err">Chyba načítania logov</span></div>';
+  }
+}
+
+function renderLogs(lines) {
+  const body = document.getElementById('log-body');
+  body.innerHTML = lines.map(l => {
+    const cls = l.includes('error') || l.includes('ERROR') || l.includes('fail') ? 'term-err'
+              : l.includes('warn')  || l.includes('WARN')  ? 'term-amber'
+              : l.includes('start') || l.includes('active') ? 'term-ok'
+              : 'term-out';
+    return `<div class="term-line"><span class="${cls}">${l}</span></div>`;
+  }).join('');
+  body.scrollTop = body.scrollHeight;
+}
+
+function filterLogs() {
+  const q = document.getElementById('log-filter').value.toLowerCase();
+  const filtered = q ? allLogLines.filter(l => l.toLowerCase().includes(q)) : allLogLines;
+  renderLogs(filtered);
+}
+
+function toggleLogAuto() {
+  if (document.getElementById('log-auto').checked) {
+    loadLogs();
+    logAutoTimer = setInterval(loadLogs, 5000);
+  } else {
+    clearInterval(logAutoTimer);
+  }
+}
+
+// ─── UPTIME ───────────────────────────────────────────────────────
+async function addUptimeTarget() {
+  const name = document.getElementById('uptime-name').value.trim();
+  const url  = document.getElementById('uptime-url').value.trim();
+  if (!name || !url) { alert('Zadaj názov aj URL'); return; }
+  await apiFetch('/api/uptime/targets', { method: 'POST', body: JSON.stringify({ name, url }) });
+  document.getElementById('uptime-name').value = '';
+  document.getElementById('uptime-url').value  = '';
+  await checkUptime();
+}
+
+async function quickUptime(name, url) {
+  await apiFetch('/api/uptime/targets', { method: 'POST', body: JSON.stringify({ name, url }) });
+  await checkUptime();
+}
+
+async function deleteUptimeTarget(idx) {
+  await apiFetch(`/api/uptime/targets/${idx}`, { method: 'DELETE' });
+  await loadUptimeTargets();
+}
+
+async function checkUptime() {
+  document.getElementById('uptime-list').innerHTML =
+    '<div style="color:var(--text2);font-family:var(--mono);font-size:12px;text-align:center;padding:16px;">Kontrolujem...</div>';
+  try {
+    await apiFetch('/api/uptime/check');
+    await loadUptimeTargets();
+  } catch(e) {}
+}
+
+async function loadUptimeTargets() {
+  try {
+    const r    = await apiFetch('/api/uptime/targets');
+    const list = document.getElementById('uptime-list');
+    if (r.targets.length === 0) {
+      list.innerHTML = '<div style="color:var(--text3);font-family:var(--mono);font-size:12px;text-align:center;padding:20px;">Zatiaľ žiadne služby.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    r.targets.forEach((t, i) => {
+      const res  = r.results[t.url] || {};
+      const up   = res.up;
+      const col  = up === undefined ? 'var(--text3)' : up ? 'var(--green)' : 'var(--red)';
+      const icon = up === undefined ? '?' : up ? '●' : '●';
+      const lat  = res.latency_ms ? res.latency_ms + ' ms' : '—';
+      list.innerHTML += `
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;display:flex;align-items:center;gap:12px;">
+          <span style="color:${col};font-size:18px;text-shadow:0 0 8px ${col};">${icon}</span>
+          <div style="flex:1;">
+            <div style="font-family:var(--mono);font-size:13px;color:var(--text);font-weight:500;">${t.name}</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--text2);">${t.url}</div>
+          </div>
+          <div style="text-align:right;font-family:var(--mono);font-size:11px;">
+            <div style="color:${col};">${up === undefined ? '—' : up ? 'Online' : 'Offline'}</div>
+            <div style="color:var(--text3);">${lat}</div>
+          </div>
+          <button class="btn btn-red" style="padding:2px 8px;font-size:10px;" onclick="deleteUptimeTarget(${i})">✕</button>
+        </div>`;
+    });
+  } catch(e) {}
+}
+
+// ─── LAUNCHER ─────────────────────────────────────────────────────
+let bookmarks = [];
+
+async function loadBookmarks() {
+  try {
+    const r = await apiFetch('/api/bookmarks');
+    bookmarks = r.bookmarks || [];
+    renderBookmarks();
+  } catch(e) {}
+}
+
+function renderBookmarks() {
+  const grid = document.getElementById('launcher-grid');
+  if (bookmarks.length === 0) {
+    grid.innerHTML = '<div style="color:var(--text3);font-family:var(--mono);font-size:12px;text-align:center;padding:30px;grid-column:1/-1;">Pridaj záložky pre rýchly prístup.</div>';
+    return;
+  }
+  const colorMap = {
+    green:  ['var(--green-dim)','rgba(0,230,118,.3)','var(--green)'],
+    blue:   ['var(--blue-dim)','rgba(64,196,255,.3)','var(--blue)'],
+    amber:  ['var(--amber-dim)','rgba(255,215,64,.3)','var(--amber)'],
+    purple: ['var(--purple-dim)','rgba(179,136,255,.3)','var(--purple)'],
+    red:    ['var(--red-dim)','rgba(255,82,82,.3)','var(--red)'],
+  };
+  grid.innerHTML = bookmarks.map((b, i) => {
+    const [bg, border, fg] = colorMap[b.color] || colorMap.green;
+    return `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;cursor:pointer;transition:all .15s;position:relative;"
+           onclick="window.open('${b.url}','_blank')"
+           onmouseover="this.style.borderColor='${border}'"
+           onmouseout="this.style.borderColor='var(--border)'">
+        <div style="width:40px;height:40px;border-radius:10px;background:${bg};border:1px solid ${border};display:flex;align-items:center;justify-content:center;font-size:20px;color:${fg};margin-bottom:10px;">${b.icon}</div>
+        <div style="font-family:var(--sans);font-size:13px;font-weight:500;color:var(--text);margin-bottom:2px;">${b.name}</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${b.url}</div>
+        <button onclick="event.stopPropagation();deleteBookmark(${i})" style="position:absolute;top:8px;right:8px;background:transparent;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:2px 4px;" title="Odstrániť">✕</button>
+      </div>`;
+  }).join('');
+}
+
+async function addBookmark() {
+  const name  = document.getElementById('bm-name').value.trim();
+  const url   = document.getElementById('bm-url').value.trim();
+  const icon  = document.getElementById('bm-icon').value.trim() || '◈';
+  const color = document.getElementById('bm-color').value;
+  if (!name || !url) { alert('Zadaj názov a URL'); return; }
+  await apiFetch('/api/bookmarks', { method: 'POST', body: JSON.stringify({ name, url, icon, color }) });
+  document.getElementById('bm-name').value = '';
+  document.getElementById('bm-url').value  = '';
+  await loadBookmarks();
+}
+
+async function deleteBookmark(idx) {
+  await apiFetch(`/api/bookmarks/${idx}`, { method: 'DELETE' });
+  await loadBookmarks();
+}
+
+// ─── ALERTS ───────────────────────────────────────────────────────
+async function checkAlerts() {
+  try {
+    const r      = await apiFetch('/api/alerts/check');
+    const banner = document.getElementById('alerts-banner');
+    if (r.alerts && r.alerts.length > 0) {
+      banner.style.display = 'block';
+      banner.innerHTML = r.alerts.map(a => {
+        const col = a.level === 'critical' ? 'var(--red)' : 'var(--amber)';
+        return `<span style="color:${col};margin-right:16px;">⚠ ${a.msg}</span>`;
+      }).join('');
+    } else {
+      banner.style.display = 'none';
+    }
+  } catch(e) {}
+}
+
+
   const btn = document.getElementById('speed-btn');
   btn.disabled = true; btn.textContent = '⏳ Testuje...';
   document.getElementById('speed-state').textContent = 'Prebieha...';
@@ -979,26 +1388,26 @@ function appendThinking(id) {
 
 // ─── INIT ────────────────────────────────────────────────────────
 async function init() {
-  // Overenie spojenia s backendom
-  try {
-    await apiFetch('/health');
-    setApiStatus(true);
-  } catch (e) {
-    setApiStatus(false);
-  }
+  try { await apiFetch('/health'); setApiStatus(true); }
+  catch(e) { setApiStatus(false); }
 
-  // Načítaj všetko
   await updateStats();
   await updateNetwork();
   await loadProcesses();
   await loadServices();
   await loadFirewallStatus();
   await loadVPNStatus();
+  await loadBookmarks();
+  await loadUptimeTargets();
+  await checkAlerts();
 
-  // Opakované načítavanie
   setInterval(updateStats,    3000);
   setInterval(updateNetwork,  3000);
   setInterval(loadProcesses, 15000);
+  setInterval(checkAlerts,   30000);
+  setInterval(async () => {
+    if (document.getElementById('sec-uptime').classList.contains('active')) await checkUptime();
+  }, 30000);
 }
 
 window.addEventListener('load', init);
