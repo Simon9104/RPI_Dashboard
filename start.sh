@@ -123,11 +123,19 @@ json.dump(cfg, open("$CONFIG", "w"), indent=2)
 EOF
 
   # ── Vlož port do HTML ─────────────────────────
-  sed -i "s|window\.__BACKEND_PORT__ || 5001|window.__BACKEND_PORT__ = $BPORT; //|g" \
-    "$SCRIPT_DIR/dashboard.html" 2>/dev/null || true
-  # Priamy inject
-  sed -i "s|const BACKEND_PORT = window.__BACKEND_PORT__ || 5001;|const BACKEND_PORT = $BPORT;|g" \
-    "$SCRIPT_DIR/dashboard.html"
+  python3 - <<PYEOF
+import re
+path = "$SCRIPT_DIR/dashboard.html"
+with open(path, "r") as f:
+    content = f.read()
+content = re.sub(
+    r'const BACKEND_PORT\s*=\s*[^;]+;',
+    'const BACKEND_PORT = $BPORT;',
+    content
+)
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
 
   echo ""
   ok "Konfigurácia uložená do config.json"
